@@ -4,7 +4,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 import datetime
 from decimal import Decimal
-from enum import StrEnum
+from enum import IntEnum, StrEnum
 from typing import Any, cast, Generic, Literal, Mapping, Protocol, runtime_checkable, TypeAlias, TypeVar
 import uuid
 
@@ -80,6 +80,18 @@ class CashAccount:
 class AccountRef:
     module_name: str
     account_name: str
+
+################################################################
+#                     Event priorities                         #
+################################################################
+
+class WealthEventPriority(IntEnum):
+    CONTRACT_DUE = 100 # Contract/internal scheduling
+    PAYMENT = 200 # Actual money movement
+    BEHAVIOR = 300 # Agent reactions to facts/events
+    MARKET = 500 # Market/account valuation events
+    TAX = 700 # Taxes, fees, end-of-period adjustements
+    RECORD = 900 # Snapshots should usually happen after everything else that day
 
 
 ################################################################
@@ -215,7 +227,7 @@ class SimulationRecorder(Module):
                 target=self.name,
                 kind=EngineEventKind.RECORD,
                 payload=RecordPayload(),
-                priority=900
+                priority=WealthEventPriority.RECORD
             )
 
     def record(self, ctx: SimulationContext) -> None:
@@ -481,15 +493,18 @@ class PaymentContract(Module):
     obligations: list[PaymentObligation] = field(default_factory=list)
 
     def __post_init__(self) -> None:
+        obligations = list(self.obligations)
+        self.obligations.clear()
         self._obligations_by_uid: dict[str, PaymentObligation] = {}
         for obligation in self.obligations:
             self.add_obligation(obligation)
     
     def add_obligation(self, obligation: PaymentObligation) -> None:
         uid = obligation.uid
-        if uid in self._obligations_by_uid.keys():
+        if uid in self._obligations_by_uid:
             raise ValueError(f"Cannot add obligation with uid={uid!r} (already one existing).")
         self._obligations_by_uid[uid] = obligation
+        self.obligations.append(obligation)
 
     def start(self, ctx: SimulationContext) -> None:
         for obligation in self.obligations:
