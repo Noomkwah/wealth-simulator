@@ -1,10 +1,12 @@
 from collections import defaultdict
 from dataclasses import dataclass, field
 import datetime
+from enum import IntEnum
 from heapq import heappop, heappush
 from itertools import count
 from typing import Any, Generic, Iterable, Protocol, runtime_checkable, TypeVar
 import uuid
+
 
 __all__ = [
     "Event",
@@ -13,6 +15,10 @@ __all__ = [
     "SimulationEngine",
 ]
 
+class EventPriority(IntEnum):
+    """Lower numbers are processed first on the same date."""
+    SYSTEM = 0
+    DEFAULT = 100
 
 T = TypeVar("T")
 @dataclass(frozen=True, slots=True)
@@ -30,7 +36,8 @@ class Event(Generic[T]):
     payload: T
 
     uid: str = field(default_factory=lambda: uuid.uuid4().hex)
-    priority: int = 100
+    priority: int = EventPriority.DEFAULT
+
 
 
 @runtime_checkable
@@ -58,7 +65,7 @@ class SimulationEngine:
         self._queue: list[_QueuedEvent] = []
         self._sequence = count()
         self._cancelled_event_uids: set[str] = set()
-        self._subscribers: dict[str, set[str]]= defaultdict(set)
+        self._subscribers: dict[str, list[str]]= defaultdict(list)
         self._ctx: SimulationContext = SimulationContext(self)
 
     def register(self, module: Module) -> Module:
@@ -84,7 +91,9 @@ class SimulationEngine:
         heappush(self._queue, _QueuedEvent(sort_key, event))
     
     def subscribe(self, module_name: str, event_kind: str) -> None:
-        self._subscribers[event_kind].add(module_name)
+        subscribers = self._subscribers[event_kind]
+        if module_name not in subscribers:
+            subscribers.append(module_name)
 
     def publish(self, event: Event[Any]) -> None:
         for target in self._subscribers.get(event.kind, ()):
@@ -174,7 +183,7 @@ class SimulationContext:
         kind: str,
         payload: T,
         uid: str | None = None,
-        priority: int = 100
+        priority: int = EventPriority.DEFAULT
     ) -> Event[T]:
         
         if uid is None:
@@ -201,7 +210,7 @@ class SimulationContext:
         source: str,
         kind: str,
         payload: T,
-        priority: int = 100,
+        priority: int = EventPriority.DEFAULT,
     ) -> None:
         self._engine.publish(
             Event(
