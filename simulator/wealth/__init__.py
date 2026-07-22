@@ -491,12 +491,13 @@ class PaymentContract(Module):
     name: str
     start_date: datetime.date
     obligations: list[PaymentObligation] = field(default_factory=list)
-
+    
     def __post_init__(self) -> None:
         obligations = list(self.obligations)
         self.obligations.clear()
-        self._obligations_by_uid: dict[str, PaymentObligation] = {}
-        for obligation in self.obligations:
+        self._obligations_by_uid = {}
+
+        for obligation in obligations:
             self.add_obligation(obligation)
     
     def add_obligation(self, obligation: PaymentObligation) -> None:
